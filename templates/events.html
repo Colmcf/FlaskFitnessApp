@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Weekly Google Calendar</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+            background: white;
+            color: dimgrey;
+        }
+        h1 {
+            text-align: center;
+            color: dodgerblue;
+        }
+        .calendar {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .day {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+        .day h3 {
+            border-bottom: 1px solid white;
+            padding-bottom: 5px;
+            color: dodgerblue;
+        }
+        li {
+            margin: 5px 0;
+            list-style: none;
+        }
+        .button-container {
+            text-align: center;
+            margin-top: 40px;
+        }
+        .btn {
+            background-color: dodgerblue;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+            transition: background 0.3s ease;
+        }
+        .btn:hover {
+            background-color: blue;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Your Weekly Google Calendar</h1>
+    <p style="text-align:center;">{{ start_of_week.strftime('%b %d, %Y') }} – {{ end_of_week.strftime('%b %d, %Y') }}</p>
+
+    <div class="calendar">
+        {% for day in weekdays %}
+        <div class="day">
+            <h3>{{ day }}</h3>
+            {% if week_events[day] %}
+    <ul>
+        {% for event in week_events[day] %}
+            <li>
+                <a href="{{ event.htmlLink }}" target="_blank" style="text-decoration: none; color: inherit;">
+                    <strong>{{ event.summary }}</strong> ({{ event.start_time }} – {{ event.end_time }})
+                </a>
+            </li>
+        {% endfor %}
+    </ul>
+{% else %}
+    <p>No events</p>
+{% endif %}
+
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="button-container">
+        <a href="{{ url_for('suggest_routines') }}" class="btn">Generate My Workout Plan</a>
+    </div>
+
+</body>
+</html>

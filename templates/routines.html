@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Upcoming Workout Routines</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 30px; background: white; }
+    h1 { color: #222; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { padding: 12px; border-bottom: 1px solid white; text-align: left; }
+  </style>
+</head>
+<body>
+  <h1>Your Next Workout Block</h1>
+  {% if routines %}
+  <table>
+    {% if routines %}
+  <table>
+    <tr><th>Date</th><th>Time</th><th>Workout</th><th>Duration (min)</th></tr>
+    {% for r in routines %}
+      {% set dt = r.scheduled_for | tojson | safe %}
+      {% set time = r.scheduled_for.split('T')[1][:5] if 'T' in r.scheduled_for else '' %}
+      <tr>
+        <td>{{ r.scheduled_for[:10] }}</td>
+        <td>{{ time }}</td>
+        <td>{{ r.name }}</td>
+        <td>{{ r.duration_minutes }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+{% else %}
+  <p>No workouts could be scheduled. Try adding more free time to your calendar!</p>
+{% endif %}
+
+  </table>
+  {% else %}
+    <p>No workouts could be scheduled. Try adding more free time to your calendar!</p>
+  {% endif %}
+<p style="text-align:center; margin-top:2rem;">
+        <div style="text-align: center; margin-top: 30px;">
+  <a href="{{ url_for('events') }}"
+     class="btn btn-primary"
+     style="background-color:dodgerblue; color:white; padding:10px 20px; border-radius:8px; text-decoration:none;">
+     Back to Calendar
+  </a>
+</div>
+</body>
+</html>

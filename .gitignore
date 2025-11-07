@@ -1,0 +1,40 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyd
+*.pdb
+*.egg-info/
+.env
+
+# Virtual environment
+venv/
+env/
+.venv/
+ENV/
+
+# VSCode or other editor settings
+.vscode/
+.idea/
+
+# Firebase & Google Credentials (VERY IMPORTANT!)
+firebase_key.json
+client_secret.json
+token.json
+
+# Environment variables
+.env
+*.env
+
+# Logs and debug files
+*.log
+debug.log
+
+# Database or user-specific data (if any)
+*.sqlite3
+*.db
+
+# macOS or system-generated files
+.DS_Store
+Thumbs.db
