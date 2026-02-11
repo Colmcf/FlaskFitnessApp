@@ -20,22 +20,24 @@ from datetime import timedelta, timezone
 import random
 
 # Below code is to connect to my Firebase database and is from Firebase Gemini obtained from my Firebase project overview page.
-cred_path = os.getenv("FIREBASE_CRED", "firebase_key.json") # Load Firebase service account key from .env
-if not firebase_admin._apps:
-    cred = credentials.Certificate(cred_path) # Load credentials from JSON key file
-    firebase_admin.initialize_app(cred) # Connect Flask app to Firebase
+load_dotenv()
 
-db = firestore.client() # To read/write data to Firebase
-
-load_dotenv()  # loads variables from .env
-
-# Below code is to access the Calendar API
-CLIENT_SECRETS_FILE = os.getenv("GOOGLE_CLIENT_SECRETS", "client_secret.json") # Path to JSON file
-SCOPES = [os.getenv("SCOPES", "https://www.googleapis.com/auth/calendar.readonly")] # Accesses Calendar API
-TOKEN_FILE = "token.json" # Stores tokens so user doesn't have to re-authorise everytime
-
+# ✅ 2. Initialize Flask
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "my-very-long-random-secret-key")
+
+# ✅ 3. Firebase setup
+cred_path = os.getenv("FIREBASE_CRED", "firebase_key.json")
+if not firebase_admin._apps:
+    cred = credentials.Certificate(cred_path)
+    firebase_admin.initialize_app(cred)
+
+db = firestore.client()
+
+# ✅ 4. Google API setup
+CLIENT_SECRETS_FILE = os.getenv("GOOGLE_CLIENT_SECRETS", "client_secret.json")
+SCOPES = [os.getenv("SCOPES", "https://www.googleapis.com/auth/calendar.readonly")]
+TOKEN_FILE = "token.json"
 
 from datetime import datetime
 
@@ -61,12 +63,14 @@ def save_credentials_to_disk(creds: Credentials, path: str = TOKEN_FILE): # Reus
         json.dump(data, f)
 
 # Below code obtained from ChatGPT when trying to receive access tokens - Prompt: I'm struggling to get access token when authenticating my google account,how can this be fixed?
-def load_credentials_from_disk(path: str = TOKEN_FILE): # If user credentials are saved they get access, if not they have to log in again
+from google.auth.transport.requests import Request
+
+def load_credentials_from_disk(path: str = TOKEN_FILE):
     if not os.path.exists(path):
         return None
     with open(path, "r") as f:
         data = json.load(f)
-    return Credentials(
+    creds = Credentials(
         token=data.get("token"),
         refresh_token=data.get("refresh_token"),
         token_uri=data.get("token_uri"),
@@ -74,6 +78,14 @@ def load_credentials_from_disk(path: str = TOKEN_FILE): # If user credentials ar
         client_secret=data.get("client_secret"),
         scopes=data.get("scopes"),
     )
+
+    # If expired but refresh token is available, refresh automatically
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        save_credentials_to_disk(creds, path)
+    return creds
+
+
 # Below code is a mix of my own work and revision of previous Flask projects
 @app.route("/")
 def index():
@@ -83,64 +95,63 @@ def index():
             '<p>Authenticated. <a href="/events">List Calendar events</a></p>'
         )
     else:
-        return '<p>Not authenticated. <a href="/authorise">Authenticate with Google</a></p>'
+        return '<p>Not authenticated. <a href="/authorize">Authenticate with Google</a></p>'
 
 
-@app.route("/authorise") # Redirects user to Google consent screen to authorise and grant permission to access their Google calendar
-def authorise():
-    # Create flow using the client secrets file and desired scopes.
-    # Redirect_uri must match the Authorised redirect URI in Google Console.
-    flow = Flow.from_client_secrets_file( # From JSON file, obtained from https://developers.google.com/identity/protocols/oauth2/web-server, and used for following routes.
+@app.route("/authorize")
+def authorize():
+    import os
+    print("DEBUG: Using client secret file:", os.path.abspath(CLIENT_SECRETS_FILE))
+
+    flow = Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
         scopes=SCOPES,
         redirect_uri=url_for("oauth2callback", _external=True)
     )
 
-    print("DEBUG Redirect URI:", flow.redirect_uri) # Obtained from ChatGPT when dealing with redirect difficulties - Prompt: I'm still getting an internal server error (I had a different redirect URI saved in my API account),
-                                                    # The chatbot asked me to provide my error messages in my terminal with this code
-
-    authorisation_url, state = flow.authorisation_url( # Obtained from https://developers.google.com/identity/protocols/oauth2/web-server
-        access_type="offline", # Issues token
+    authorization_url, state = flow.authorization_url(
+        access_type="offline",
         include_granted_scopes="true",
-        prompt="consent"  # Ensures refresh token is returned
+        prompt="consent"
     )
 
-    session["state"] = state # User is redirected to authorisation screen
-    return redirect(authorisation_url)
+    session["state"] = state
+    return redirect(authorization_url)
 
 
-import traceback
-
-@app.route("/oauth2callback") # Receives Google's response and stores access tokens for later API use
-def oauth2callback(): # Google redirects back here after user approves/denies access
+@app.route("/oauth2callback")
+def oauth2callback():
     try:
         state = session.get("state")
         if not state:
             return "Missing state in session.", 400
 
         flow = Flow.from_client_secrets_file(
-            CLIENT_SECRETS_FILE, # Recreates the flow object using the same redirect URI
+            CLIENT_SECRETS_FILE,
             scopes=SCOPES,
             state=state,
             redirect_uri=url_for("oauth2callback", _external=True)
         )
-# Below code obtained from ChatGPT when dealing with difficulties with token generation
-        flow.fetch_token(authorisation_response=request.url) # Exchange of authorise URL for token
+
+        # ✅ fixed spelling: authorization_response
+        flow.fetch_token(authorization_response=request.url)
+
         creds = flow.credentials
-        print("DEBUG Credentials:", creds)
         save_credentials_to_disk(creds, TOKEN_FILE)
         return redirect(url_for("index"))
 
     except Exception as e:
-        print("OAuth2 callback error:", traceback.format_exc()) # Used to catch any errors in redirect process
+        import traceback
+        print("OAuth2 callback error:", traceback.format_exc())
         return f"OAuth2 callback error: {str(e)}", 500
+
 
 # Below code connects to the events.html file and displays the calendar
 @app.route("/events")
 def events():
     creds = load_credentials_from_disk()
     if not creds:
-        return redirect(url_for("authorise"))
+        return redirect(url_for("authorize"))
 
     service = build("calendar", "v3", credentials=creds)
 
@@ -207,7 +218,7 @@ def events():
 def free_slots():
     creds = load_credentials_from_disk()
     if not creds:
-        return redirect(url_for("authorise"))
+        return redirect(url_for("authorize"))
 
     if creds.expired and creds.refresh_token: # Refresh tokens is required
         creds.refresh(Request())
@@ -296,20 +307,18 @@ def test_firebase():
     doc_ref.set({"hello": "world", "time": datetime.utcnow().isoformat()})
     return "Firebase connection successful"
 
-
 @app.route("/suggest_routines")
 def suggest_routines():
     try:
         creds = load_credentials_from_disk()
         if not creds:
-            return redirect(url_for("authorise"))
+            return redirect(url_for("authorize"))
 
         service = build("calendar", "v3", credentials=creds)
 
-        now = datetime.utcnow().isoformat() + "Z" # Gets events from now to 7 days ahead
+        now = datetime.utcnow().isoformat() + "Z"
         end_time = (datetime.utcnow() + timedelta(days=7)).isoformat() + "Z"
 
-        # Get next 7 days of events
         events_result = service.events().list(
             calendarId="primary",
             timeMin=now,
@@ -319,40 +328,46 @@ def suggest_routines():
         ).execute()
 
         events = events_result.get("items", [])
-
-        # Convert events to datetime ranges
         busy_times = []
+
         for e in events:
-            start_str = e["start"].get("dateTime")
-            end_str = e["end"].get("dateTime")
-
+            start_str = e.get("start", {}).get("dateTime")
+            end_str = e.get("end", {}).get("dateTime")
             if not start_str or not end_str:
-                continue  # skip all-day events
-
-            start = datetime.fromisoformat(start_str.replace("Z", "+00:00")) # Append datetime objects to busy list
+                continue
+            start = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
             end = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
             busy_times.append((start, end))
+        busy_times.sort(key=lambda x: x[0])
 
-        busy_times.sort(key=lambda x: x[0]) # Sort by start time
+        user_goal = "Mobility"  # Or Strength, Weight Loss, etc.
 
-        # Load workouts from Firebase
-        workouts_all = [w.to_dict() for w in db.collection("workouts").stream()]
-        unique_workouts = workouts_all.copy()
+        workouts_all = []
+        print("DEBUG: Fetching workouts from Firebase...")
+        query = db.collection("workouts").where("Goal", "==", user_goal).stream()
+        for doc in query:
+            w = doc.to_dict()
+            print("Workout fetched:", w)
+            if not w or not w.get("name") or not w.get("duration_minutes"):
+                print("⚠️ Skipping invalid workout:", w)
+                continue
+            workouts_all.append(w)
+
+        print(f"✅ Total valid workouts loaded: {len(workouts_all)}")
+
+        if not workouts_all:
+            return f"No workouts found for goal '{user_goal}'", 404
 
         suggestions = []
         used_workouts = set()
+        day_pointer = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        day_pointer = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) # Starts workouts from today, obtained from ChatGPT - Prompt: instead of the workouts showing from every monday, how can they show from today and including next 7 days
-
-        for i in range(7): # Loop for each 7-day period
+        for i in range(7):
             day_start = day_pointer + timedelta(days=i)
             day_end = day_start + timedelta(days=1)
-
-            # Find all events that day
-            day_events = [(s, e) for s, e in busy_times if s < day_end and e > day_start] # Obtained from ChatGPT from a following question from above - Prompt: how can the free times be located for display
+            day_events = [(s, e) for s, e in busy_times if s < day_end and e > day_start]
             day_events.sort(key=lambda x: x[0])
 
-            # Find free slots for this day
             free_slots = []
             last_end = day_start
             for start, end in day_events:
@@ -365,35 +380,28 @@ def suggest_routines():
             if not free_slots:
                 continue
 
-            # Pick the largest free slot
             largest_slot = max(free_slots, key=lambda s: (s[1] - s[0]).total_seconds())
             slot_duration = (largest_slot[1] - largest_slot[0]).total_seconds() / 60
 
- # Below block of code obtained from ChatGPT when dealing with difficulties of the same workout being displayed for each day - Prompt: the same workout is being displayed for each day, how can this be fixed to show a variety of workouts
-            # First try to pick an unused workout that fits
             unused_fitting = [
-                w for w in unique_workouts
-                if w["duration_minutes"] <= slot_duration and w["name"] not in used_workouts
+                w for w in workouts_all
+                if w.get("duration_minutes", 0) <= slot_duration and w.get("name") and w["name"] not in used_workouts
             ]
 
             if unused_fitting:
                 chosen = random.choice(unused_fitting)
                 used_workouts.add(chosen["name"])
             else:
-                # If all workout types used, pick any that fits
-                fitting = [w for w in workouts_all if w["duration_minutes"] <= slot_duration]
+                fitting = [w for w in workouts_all if w.get("duration_minutes", 0) <= slot_duration and w.get("name")]
                 if fitting:
                     chosen = random.choice(fitting)
                 else:
-                    continue  # no workouts short enough for this slot
+                    continue
 
-            # Save choice and schedule workout
             chosen = chosen.copy()
             chosen["scheduled_for"] = largest_slot[0].isoformat()
             suggestions.append(chosen)
 
-
-        # Save to Firebase
         user_id = "demo_user"
         for s in suggestions:
             db.collection("users").document(user_id).collection("routines").add(s)
@@ -404,6 +412,8 @@ def suggest_routines():
         import traceback
         print("Error generating routines:", traceback.format_exc())
         return f"Error: {str(e)}", 500
+
+
 
 if __name__ == "__main__":
     app.run("localhost", 5000, debug=True)
